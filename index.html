@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>타자 성장 대시보드</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          fontFamily: { sans: ["Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", "sans-serif"] },
+          colors: {
+            ink: "#172033",
+            primary: "#6C63FF",
+            mint: "#35C9A5"
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #7b8499;
+      --line: #e7eaf2;
+    }
+    html.dark {
+      --bg: #111827;
+      --card: #1b2435;
+      --text: #edf2ff;
+      --muted: #aeb8cd;
+      --line: #303b50;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      transition: background .25s ease, color .25s ease;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 28px rgba(35, 45, 75, .06);
+    }
+    .muted { color: var(--muted); }
+    .typed-correct { color: #2563eb; font-weight: 700; }
+    html.dark .typed-correct { color: #67a3ff; }
+    .typed-wrong { color: #dc2626; background: rgba(248, 113, 113, .22); border-radius: 3px; }
+    .sentence-char { transition: color .08s ease, background .08s ease; }
+    .tab-active { background: #6C63FF; color: white; box-shadow: 0 6px 16px rgba(108,99,255,.25); }
+    .tab-inactive { color: var(--muted); }
+    .confetti {
+      position: fixed;
+      width: 9px;
+      height: 9px;
+      z-index: 100;
+      pointer-events: none;
+      animation: confetti-fall 1.8s ease-out forwards;
+    }
+    @keyframes confetti-fall {
+      0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(70vh) rotate(720deg); opacity: 0; }
+    }
+    .pulse-badge { animation: pulse-badge 1.5s ease-in-out infinite; }
+    @keyframes pulse-badge {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
+    }
+    @media (max-width: 640px) {
+      .table-scroll { overflow-x: auto; }
+      table { min-width: 640px; }
+    }
+  </style>
+</head>
+<body class="min-h-screen font-sans">
+  <div id="app" class="max-w-[1180px] mx-auto px-4 py-5 md:px-6 md:py-7">
+    <!-- 헤더 -->
+    <header class="flex items-center justify-between gap-3 mb-5">
+      <div>
+        <p class="text-xs font-bold text-violet-500 tracking-widest mb-1">TYPING GROWTH</p>
+        <h1 class="text-2xl md:text-3xl font-black tracking-tight">타자 성장 대시보드</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="themeButton" type="button" class="card h-11 px-3 rounded-xl font-bold text-sm flex items-center gap-2" aria-label="다크 모드 전환">
+          <span id="themeIcon">🌙</span>
+          <span id="themeText" class="hidden md:inline">다크 모드</span>
+        </button>
+        <button id="openModalButton" type="button" class="h-11 px-3 md:px-4 rounded-xl bg-violet-600 text-white font-bold text-sm shadow-lg shadow-violet-500/20">
+          + 기록 직접 추가
+        </button>
+      </div>
+    </header>
+
+    <!-- 언어 탭 -->
+    <nav class="card p-1.5 rounded-2xl grid grid-cols-2 gap-1 mb-5" aria-label="타자 언어 선택">
+      <button id="koreanTab" type="button" class="tab-active h-11 rounded-xl font-bold transition" data-mode="ko">한글 타자 · CPM</button>
+      <button id="englishTab" type="button" class="tab-inactive h-11 rounded-xl font-bold transition" data-mode="en">영어 타자 · WPM</button>
+    </nav>
+
+    <!-- 요약 카드 -->
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <article class="card rounded-2xl p-4">
+        <div class="text-xs font-bold muted mb-2">한글 최고 타수</div>
+        <div><span id="koBest" class="text-3xl font-black">0</span><span class="muted text-sm ml-1">CPM</span></div>
+      </article>
+      <article class="card rounded-2xl p-4">
+        <div class="text-xs font-bold muted mb-2">영어 최고 타수</div>
+        <div><span id="enBest" class="text-3xl font-black">0</span><span class="muted text-sm ml-1">WPM</span></div>
+      </article>
+      <article class="card rounded-2xl p-4">
+        <div class="text-xs font-bold muted mb-2">평균 정확도</div>
+        <div><span id="averageAccuracy" class="text-3xl font-black">0</span><span class="muted text-sm ml-1">%</span></div>
+      </article>
+      <article class="card rounded-2xl p-4">
+        <div class="text-xs font-bold muted mb-2">연속 연습일 🔥</div>
+        <div><span id="streakCount" class="text-3xl font-black">0</span><span class="muted text-sm ml-1">일</span></div>
+      </article>
+    </section>
+
+    <main class="grid grid-cols-1 lg:grid-cols-[1.55fr_.75fr] gap-5">
+      <!-- 실시간 타자 연습 -->
+      <section class="card rounded-2xl p-4 md:p-6">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="font-black text-lg">오늘의 타자 연습</h2>
+          <button id="nextSentenceButton" type="button" class="px-3 py-2 rounded-xl text-sm font-bold border" style="border-color: var(--line)">새 문장 ↻</button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 mb-4">
+          <div class="rounded-xl px-3 py-3 text-center" style="background:rgba(108,99,255,.09)">
+            <div class="text-xs muted">현재 타수</div>
+            <div class="font-black text-xl"><span id="liveSpeed">0</span><span id="liveUnit" class="text-xs ml-1 muted">CPM</span></div>
+          </div>
+          <div class="rounded-xl px-3 py-3 text-center" style="background:rgba(53,201,165,.09)">
+            <div class="text-xs muted">정확도</div>
+            <div class="font-black text-xl"><span id="liveAccuracy">100</span><span class="text-xs ml-1 muted">%</span></div>
+          </div>
+          <div class="rounded-xl px-3 py-3 text-center" style="background:rgba(59,130,246,.09)">
+            <div class="text-xs muted">경과 시간</div>
+            <div class="font-black text-xl"><span id="liveTime">0.0</span><span class="text-xs ml-1 muted">초</span></div>
+          </div>
+        </div>
+
+        <!-- 문장이 랜덤으로 표시되는 영역 -->
+        <div id="sentenceDisplay" class="min-h-28 md:min-h-32 rounded-2xl p-4 md:p-5 text-xl md:text-2xl leading-relaxed font-semibold select-none" style="background:var(--bg);border:1px solid var(--line)" aria-label="타자 연습 문장"></div>
+
+        <textarea id="typingInput" rows="3" class="mt-3 w-full resize-none rounded-2xl p-4 outline-none font-semibold text-lg" style="background:var(--bg);border:1px solid var(--line);color:var(--text)" placeholder="여기에 문장을 입력하세요. 첫 글자 입력 시 타이머가 시작됩니다." autocomplete="off" spellcheck="false"></textarea>
+
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p id="typingHint" class="text-sm muted">문장을 완성한 뒤 Enter 키를 누르면 기록됩니다.</p>
+          <button id="resetTypingButton" type="button" class="text-sm font-bold text-violet-500">다시 입력하기</button>
+        </div>
+
+        <div id="goalMessage" class="hidden mt-4 rounded-xl bg-emerald-500/10 border border-emerald-400/30 px-4 py-3 text-emerald-600 dark:text-emerald-300 font-bold">
+          🎉 목표 달성 배지를 획득했어요!
+        </div>
+      </section>
+
+      <!-- 목표 -->
+      <aside class="card rounded-2xl p-5 h-fit">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-black text-lg">이번 목표</h2>
+          <span id="goalBadge" class="hidden pulse-badge rounded-full px-3 py-1 text-xs font-black bg-amber-400 text-amber-950">🏆 달성</span>
+        </div>
+        <div class="rounded-2xl p-4 mb-4" style="background:var(--bg)">
+          <div class="flex items-end justify-between">
+            <div>
+              <div id="goalLabel" class="text-xs muted mb-1">한글 목표 타수</div>
+              <div><span id="goalValue" class="text-3xl font-black">300</span><span id="goalUnit" class="text-sm muted ml-1">CPM</span></div>
+            </div>
+            <div class="text-right">
+              <div class="text-xs muted">현재 최고</div>
+              <div id="goalProgressText" class="font-black text-violet-500">0%</div>
+            </div>
+          </div>
+          <div class="h-2.5 rounded-full mt-4 overflow-hidden" style="background:var(--line)">
+            <div id="goalProgressBar" class="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-400 transition-all" style="width:0%"></div>
+          </div>
+        </div>
+        <label class="block text-sm font-bold mb-2" for="goalInput">목표 타수 설정</label>
+        <div class="flex gap-2">
+          <input id="goalInput" type="number" min="1" class="min-w-0 flex-1 h-11 rounded-xl px-3 outline-none" style="background:var(--bg);border:1px solid var(--line);color:var(--text)" placeholder="300">
+          <button id="saveGoalButton" type="button" class="h-11 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold">저장</button>
+        </div>
+      </aside>
+    </main>
+
+    <!-- 성장 차트 -->
+    <section class="card rounded-2xl p-4 md:p-6 mt-5">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-black text-lg">최근 성장 추이</h2>
+          <p class="text-xs muted mt-1">최근 10개의 연습 기록을 표시합니다</p>
+        </div>
+      </div>
+      <div class="h-64 md:h-72">
+        <canvas id="growthChart"></canvas>
+      </div>
+    </section>
+
+    <!-- 기록 히스토리 -->
+    <section class="card rounded-2xl p-4 md:p-6 mt-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-black text-lg">기록 히스토리</h2>
+        <button id="clearAllButton" type="button" class="text-sm font-bold text-red-500 hover:text-red-600">전체 초기화</button>
+      </div>
+      <div class="table-scroll">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left muted border-b" style="border-color:var(--line)">
+              <th class="py-3 px-2">날짜</th>
+              <th class="py-3 px-2">언어</th>
+              <th class="py-3 px-2">타수</th>
+              <th class="py-3 px-2">정확도</th>
+              <th class="py-3 px-2">비고</th>
+              <th class="py-3 px-2 text-right">관리</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- 기록 직접 추가 모달 -->
+  <div id="recordModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="card w-full max-w-md rounded-2xl p-5 md:p-6">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-xl font-black">기록 직접 추가</h2>
+        <button id="closeModalButton" type="button" class="w-9 h-9 rounded-full text-xl" style="background:var(--bg)" aria-label="닫기">×</button>
+      </div>
+      <form id="recordForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-bold mb-2" for="recordLanguage">언어</label>
+          <select id="recordLanguage" class="w-full h-11 rounded-xl px-3 outline-none" style="background:var(--bg);border:1px solid var(--line);color:var(--text)">
+            <option value="ko">한글</option>
+            <option value="en">영어</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-bold mb-2" for="recordSpeed">타수</label>
+            <input id="recordSpeed" type="number" min="1" required class="w-full h-11 rounded-xl px-3 outline-none" style="background:var(--bg);border:1px solid var(--line);color:var(--text)" placeholder="예: 320">
+          </div>
+          <div>
+            <label class="block text-sm font-bold mb-2" for="recordAccuracy">정확도 (%)</label>
+            <input id="recordAccuracy" type="number" min="0" max="100" step="0.1" required class="w-full h-11 rounded-xl px-3 outline-none" style="background:var(--bg);border:1px solid var(--line);color:var(--text)" placeholder="예: 98">
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-bold mb-2" for="recordDate">날짜</label>
+          <input id="recordDate" type="date" required class="w-full h-11 rounded-xl px-3 outline-none" style="background:var(--bg);border:1px solid var(--line);color:var(--text)">
+        </div>
+        <div>
+          <label class="block text-sm font-bold mb-2" for="recordMemo">메모</label>
+          <input id="recordMemo" type="text" maxlength="80" class="w-full h-11 rounded-xl px-3 outline-none" style="background:var(--bg);border:1px solid var(--line);color:var(--text)" placeholder="예: 한컴타자연습 3단계">
+        </div>
+        <button type="submit" class="w-full h-12 rounded-xl bg-violet-600 text-white font-black">저장하기</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // ===== 기본 문장 목록: 문장만 수정하면 간단하게 문구를 바꿀 수 있습니다 =====
+    const KOREAN_SENTENCES = [
+      "호기심은 배움의 시작이고, 꾸준함은 실력의 열쇠다.",
+      "하루에 조금씩 연습하면 어느새 멀리 와 있을 것이다.",
+      "하늘의 별은 밤이 깊을수록 더욱 밝게 빛난다.",
+      "개구리는 고소한 입맛이 아니라 연못에 뛰어들 때도 조심한다.",
+      "티끌 모아 태산이라는 말처럼 작은 노력이 쌓인다.",
+      "세상에서 가장 빠른 학습은 직접 해보는 경험이다.",
+      "백지장도 맞들면 낫다는 속담처럼 협력은 큰 힘이 된다.",
+      "성공은 준비와 기회가 만나야 생기는 경우가 많다.",
+      "아는 길도 물어가라는 말처럼 겸손하게 배우자.",
+      "고래가 뛰어도 치는 순간 바닷물이 출렁이는 것처럼 집중이 필요하다.",
+      "오늘의 작은 실천이 내일의 자신감을 만든다.",
+      "코딩은 컴퓨터와 대화하며 문제를 해결하는 창의적인 활동이다.",
+      "번개는 치지만 천둥은 늦게 들린다.",
+      "시작이 반이라는 말처럼 용기를 내어 첫 단추를 끼워 보자.",
+      "꿈을 꾸는 데는 나이가 필요하지 않다.",
+      "바람은 불어도 구름은 언제나 변해 가는 모습을 보여준다.",
+      "책 한 권에는 새로운 세상을 만나게 하는 비밀이 있다."
+    ];
+
+    const ENGLISH_SENTENCES = [
+      "Small steps every day lead to great achievements.",
+      "Curiosity is the beginning of every new discovery.",
+      "Practice makes progress, even when it feels difficult.",
+      "The early bird catches the worm.",
+      "Teamwork makes the dream work.",
+      "A journey begins with a single step.",
+      "Dream big and work patiently toward your goal.",
+      "Mistakes are proof that you are trying.",
+      "The secret of getting ahead is getting started.",
+      "Reading opens doors to amazing worlds.",
+      "A calm mind brings a clear answer.",
+      "Success is the sum of small efforts repeated daily.",
+      "Two heads are better than one.",
+      "Kind words can brighten someone's whole day.",
+      "Technology makes it possible to turn ideas into reality.",
+      "Where there is a will, there is a way.",
+      "Every expert was once a beginner."
+    ];
+
+    // ===== 상태 및 localStorage 키 =====
+    const STORAGE_KEY = "typingDashboardRecords";
+    const GOAL_KEY = "typingDashboardGoals";
+    const THEME_KEY = "typingDashboardTheme";
+
+    let currentMode = "ko";
+    let records = loadRecords();
+    let goals = loadGoals();
+    let currentSentence = "";
+    let timerStartedAt = null;
+    let timerFrame = null;
+    let elapsedSeconds = 0;
+    let chart = null;
+
+    const $ = (id) => document.getElementById(id);
+
+    function loadRecords() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function saveRecords() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    }
+
+    function loadGoals() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(GOAL_KEY));
+        return parsed || { ko: 300, en: 50 };
+      } catch (error) {
+        return { ko: 300, en: 50 };
+      }
+    }
+
+    function saveGoals() {
+      localStorage.setItem(GOAL_KEY, JSON.stringify(goals));
+    }
+
+    function localDateString(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function formatDisplayDate(dateString) {
+      if (!dateString) return "-";
+      const date = new Date(`${dateString}T00:00:00`);
+      return `${date.getMonth() + 1}.${date.getDate()}`;
+    }
+
+    function escapeHTML(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    // ===== 문장 및 실시간 타이핑 =====
+    function pickRandomSentence() {
+      const list = currentMode === "ko" ? KOREAN_SENTENCES : ENGLISH_SENTENCES;
+      let next = list[Math.floor(Math.random() * list.length)];
+      if (list.length > 1 && next === currentSentence) {
+        next = list[(list.indexOf(next) + 1) % list.length];
+      }
+      currentSentence = next;
+      resetTyping();
+    }
+
+    function renderSentence() {
+      const input = $("typingInput").value;
+      $("sentenceDisplay").innerHTML = [...currentSentence].map((char, index) => {
+        let className = "sentence-char";
+        if (index < input.length) {
+          className += input[index] === char ? " typed-correct" : " typed-wrong";
+        }
+        return `<span class="${className}" data-index="${index}">${escapeHTML(char)}</span>`;
+      }).join("");
+    }
+
+    function startTimer() {
+      if (timerStartedAt) return;
+      timerStartedAt = performance.now();
+      timerFrame = requestAnimationFrame(updateLiveStats);
+    }
+
+    function stopTimer() {
+      if (timerFrame) cancelAnimationFrame(timerFrame);
+      timerFrame = null;
+    }
+
+    function calculateStats() {
+      const input = $("typingInput").value;
+      elapsedSeconds = timerStartedAt ? (performance.now() - timerStartedAt) / 1000 : 0;
+      let correct = 0;
+      for (let i = 0; i < input.length; i++) {
+        if (input[i] === currentSentence[i]) correct++;
+      }
+      const accuracy = input.length === 0 ? 100 : (correct / input.length) * 100;
+      let speed = 0;
+      if (elapsedSeconds > 0) {
+        if (currentMode === "ko") {
+          speed = Math.round(correct / (elapsedSeconds / 60));
+        } else {
+          speed = Math.round((correct / 5) / (elapsedSeconds / 60));
+        }
+      }
+      return { speed, accuracy, correct, elapsedSeconds };
+    }
+
+    function updateLiveStats() {
+      const stats = calculateStats();
+      $("liveSpeed").textContent = stats.speed;
+      $("liveAccuracy").textContent = Math.round(stats.accuracy);
+      $("liveTime").textContent = stats.elapsedSeconds.toFixed(1);
+      timerFrame = requestAnimationFrame(updateLiveStats);
+    }
+
+    function resetTyping() {
+      stopTimer();
+      timerStartedAt = null;
+      elapsedSeconds = 0;
+      $("typingInput").value = "";
+      $("liveSpeed").textContent = "0";
+      $("liveAccuracy").textContent = "100";
+      $("liveTime").textContent = "0.0";
+      $("typingHint").textContent = "문장을 완성한 뒤 Enter 키를 누르면 기록됩니다.";
+      renderSentence();
+      $("typingInput").focus();
+    }
+
+    function completeTyping() {
+      const input = $("typingInput").value;
+      if (!input) return;
+
+      const stats = calculateStats();
+      stopTimer();
+
+      if (stats.elapsedSeconds < 0.5) {
+        $("typingHint").textContent = "아직 너무 짧은 시간입니다. 문장을 끝까지 입력해 주세요.";
+        return;
+      }
+
+      const record = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        date: localDateString(),
+        language: currentMode,
+        speed: stats.speed,
+        accuracy: Number(stats.accuracy.toFixed(1)),
+        memo: "실시간 타자 연습",
+        createdAt: Date.now()
+      };
+      records.push(record);
+      saveRecords();
+      $("typingHint").textContent = `완료! ${record.speed}${currentMode === "ko" ? " CPM" : " WPM"}, 정확도 ${record.accuracy}%`;
+      refreshAll();
+      launchGoalCelebrationIfAchieved(record.speed, record.language);
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      $("koreanTab").className = mode === "ko"
+        ? "tab-active h-11 rounded-xl font-bold transition"
+        : "tab-inactive h-11 rounded-xl font-bold transition";
+      $("englishTab").className = mode === "en"
+        ? "tab-active h-11 rounded-xl font-bold transition"
+        : "tab-inactive h-11 rounded-xl font-bold transition";
+      $("liveUnit").textContent = mode === "ko" ? "CPM" : "WPM";
+      $("typingInput").placeholder = mode === "ko"
+        ? "여기에 문장을 입력하세요. 첫 글자 입력 시 타이머가 시작됩니다."
+        : "Type the sentence here. The timer starts with your first character.";
+      pickRandomSentence();
+      updateGoal();
+    }
+
+    // ===== 목표 및 축하 효과 =====
+    function updateGoal() {
+      const unit = currentMode === "ko" ? "CPM" : "WPM";
+      const best = getBestSpeed(currentMode);
+      const goal = goals[currentMode];
+      const progress = goal > 0 ? Math.min(100, Math.round((best / goal) * 100)) : 0;
+
+      $("goalLabel").textContent = currentMode === "ko" ? "한글 목표 타수" : "영어 목표 타수";
+      $("goalValue").textContent = goal;
+      $("goalUnit").textContent = unit;
+      $("goalInput").value = goal;
+      $("goalProgressText").textContent = `${progress}%`;
+      $("goalProgressBar").style.width = `${progress}%`;
+      $("goalBadge").classList.toggle("hidden", best < goal);
+    }
+
+    function saveGoal() {
+      const value = Number($("goalInput").value);
+      if (!Number.isFinite(value) || value < 1) {
+        alert("목표 타수를 1 이상의 숫자로 입력해 주세요.");
+        return;
+      }
+      goals[currentMode] = Math.round(value);
+      saveGoals();
+      updateGoal();
+      $("typingHint").textContent = "목표가 저장되었습니다!";
+    }
+
+    function launchGoalCelebrationIfAchieved(speed, language = currentMode) {
+      if (speed < goals[language]) return;
+
+      $("goalMessage").classList.remove("hidden");
+      $("goalBadge").classList.remove("hidden");
+
+      const colors = ["#6C63FF", "#35C9A5", "#FBBF24", "#FB7185", "#60A5FA"];
+      for (let i = 0; i < 70; i++) {
+        const piece = document.createElement("div");
+        piece.className = "confetti";
+        piece.style.left = `${Math.random() * 100}vw`;
+        piece.style.top = `${-20 - Math.random() * 120}px`;
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.animationDelay = `${Math.random() * .35}s`;
+        piece.style.transform = `rotate(${Math.random() * 180}deg)`;
+        document.body.appendChild(piece);
+        setTimeout(() => piece.remove(), 2200);
+      }
+    }
+
+    // ===== 요약, 스트릭, 히스토리 =====
+    function getBestSpeed(language) {
+      const filtered = records.filter(record => record.language === language);
+      return filtered.length ? Math.max(...filtered.map(record => Number(record.speed) || 0)) : 0;
+    }
+
+    function calculateStreak() {
+      if (!records.length) return 0;
+      const practicedDates = new Set(records.map(record => record.date));
+      let cursor = new Date();
+      cursor.setHours(0, 0, 0, 0);
+
+      if (!practicedDates.has(localDateString(cursor))) {
+        cursor.setDate(cursor.getDate() - 1);
+      }
+
+      let streak = 0;
+      while (practicedDates.has(localDateString(cursor))) {
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      return streak;
+    }
+
+    function refreshSummary() {
+      const koBest = getBestSpeed("ko");
+      const enBest = getBestSpeed("en");
+      const average = records.length
+        ? records.reduce((sum, record) => sum + (Number(record.accuracy) || 0), 0) / records.length
+        : 0;
+
+      $("koBest").textContent = koBest;
+      $("enBest").textContent = enBest;
+      $("averageAccuracy").textContent = average.toFixed(1);
+      $("streakCount").textContent = calculateStreak();
+      updateGoal();
+    }
+
+    function refreshHistory() {
+      const sorted = [...records].sort((a, b) =>
+        (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0)
+      );
+
+      if (!sorted.length) {
+        $("historyBody").innerHTML = `
+          <tr>
+            <td colspan="6" class="py-10 text-center muted">아직 저장된 기록이 없습니다. 첫 기록을 만들어 보세요!</td>
+          </tr>`;
+        return;
+      }
+
+      $("historyBody").innerHTML = sorted.map(record => `
+        <tr class="border-b" style="border-color:var(--line)">
+          <td class="py-3 px-2">${escapeHTML(formatDisplayDate(record.date))}</td>
+          <td class="py-3 px-2">
+            <span class="rounded-full px-2 py-1 text-xs font-bold ${record.language === "ko" ? "bg-violet-500/10 text-violet-500" : "bg-blue-500/10 text-blue-500"}">
+              ${record.language === "ko" ? "한글 CPM" : "영어 WPM"}
+            </span>
+          </td>
+          <td class="py-3 px-2 font-black">${escapeHTML(record.speed)}</td>
+          <td class="py-3 px-2">${escapeHTML(record.accuracy)}%</td>
+          <td class="py-3 px-2 muted">${escapeHTML(record.memo || "-")}</td>
+          <td class="py-3 px-2 text-right">
+            <button type="button" class="delete-record text-xs font-bold text-red-500" data-id="${escapeHTML(record.id)}">삭제</button>
+          </td>
+        </tr>
+      `).join("");
+
+      document.querySelectorAll(".delete-record").forEach(button => {
+        button.addEventListener("click", () => {
+          const id = button.dataset.id;
+          records = records.filter(record => record.id !== id);
+          saveRecords();
+          refreshAll();
+        });
+      });
+    }
+
+    // ===== Chart.js 성장 차트 =====
+    function refreshChart() {
+      const sorted = [...records]
+        .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.createdAt || 0) - (b.createdAt || 0))
+        .slice(-10);
+
+      const labels = sorted.map(record => formatDisplayDate(record.date));
+      const koData = sorted.map(record => record.language === "ko" ? Number(record.speed) : null);
+      const enData = sorted.map(record => record.language === "en" ? Number(record.speed) : null);
+      const ctx = $("growthChart").getContext("2d");
+      const dark = document.documentElement.classList.contains("dark");
+      const gridColor = dark ? "rgba(174,184,205,.12)" : "rgba(123,132,153,.16)";
+      const textColor = dark ? "#aeb8cd" : "#7b8499";
+
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "한글 CPM",
+              data: koData,
+              borderColor: "#6C63FF",
+              backgroundColor: "rgba(108,99,255,.12)",
+              pointBackgroundColor: "#6C63FF",
+              pointRadius: 4,
+              tension: .35,
+              fill: true,
+              spanGaps: true
+            },
+            {
+              label: "영어 WPM",
+              data: enData,
+              borderColor: "#35C9A5",
+              backgroundColor: "rgba(53,201,165,.10)",
+              pointBackgroundColor: "#35C9A5",
+              pointRadius: 4,
+              tension: .35,
+              fill: true,
+              spanGaps: true
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              labels: { color: textColor, usePointStyle: true, pointStyle: "circle", padding: 16 }
+            },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  return ` ${context.dataset.label}: ${context.parsed.y ?? "-"}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: { color: textColor } },
+            y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: textColor } }
+          }
+        }
+      });
+    }
+
+    function refreshAll() {
+      refreshSummary();
+      refreshHistory();
+      refreshChart();
+    }
+
+    // ===== 모달 및 전체 초기화 =====
+    function openModal() {
+      $("recordModal").classList.remove("hidden");
+      $("recordModal").classList.add("flex");
+      $("recordLanguage").value = currentMode;
+      $("recordDate").value = localDateString();
+      $("recordSpeed").focus();
+    }
+
+    function closeModal() {
+      $("recordModal").classList.add("hidden");
+      $("recordModal").classList.remove("flex");
+      $("recordForm").reset();
+    }
+
+    // ===== 다크 모드 =====
+    function applyTheme(theme) {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      $("themeIcon").textContent = theme === "dark" ? "☀️" : "🌙";
+      $("themeText").textContent = theme === "dark" ? "라이트 모드" : "다크 모드";
+      localStorage.setItem(THEME_KEY, theme);
+      refreshChart();
+    }
+
+    // ===== 이벤트 연결 =====
+    $("koreanTab").addEventListener("click", () => switchMode("ko"));
+    $("englishTab").addEventListener("click", () => switchMode("en"));
+    $("nextSentenceButton").addEventListener("click", pickRandomSentence);
+    $("resetTypingButton").addEventListener("click", resetTyping);
+    $("saveGoalButton").addEventListener("click", saveGoal);
+
+    $("typingInput").addEventListener("input", () => {
+      if (!timerStartedAt && $("typingInput").value.length > 0) startTimer();
+      renderSentence();
+    });
+
+    $("typingInput").addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if ($("typingInput").value.trim().length > 0) completeTyping();
+      }
+    });
+
+    $("openModalButton").addEventListener("click", openModal);
+    $("closeModalButton").addEventListener("click", closeModal);
+    $("recordModal").addEventListener("click", event => {
+      if (event.target === $("recordModal")) closeModal();
+    });
+
+    // submit 이벤트를 등록하여 브라우저 기본 새로고침을 막습니다.
+    $("recordForm").addEventListener("submit", event => {
+      event.preventDefault();
+      const speed = Number($("recordSpeed").value);
+      const accuracy = Number($("recordAccuracy").value);
+      const language = $("recordLanguage").value;
+
+      if (!Number.isFinite(speed) || speed < 1) {
+        alert("타수를 올바르게 입력해 주세요.");
+        return;
+      }
+      if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100) {
+        alert("정확도를 0~100 사이로 입력해 주세요.");
+        return;
+      }
+
+      records.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        date: $("recordDate").value,
+        language,
+        speed: Math.round(speed),
+        accuracy: Number(accuracy.toFixed(1)),
+        memo: $("recordMemo").value.trim() || "-",
+        createdAt: Date.now()
+      });
+      saveRecords();
+      closeModal();
+      refreshAll();
+      launchGoalCelebrationIfAchieved(Math.round(speed), language);
+    });
+
+    $("clearAllButton").addEventListener("click", () => {
+      if (!records.length) return;
+      if (confirm("모든 타자 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) {
+        records = [];
+        saveRecords();
+        refreshAll();
+      }
+    });
+
+    $("themeButton").addEventListener("click", () => {
+      const nextTheme = document.documentElement.classList.contains("dark") ? "light" : "dark";
+      applyTheme(nextTheme);
+    });
+
+    // ===== 최초 실행 =====
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    const preferredTheme = savedTheme || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    applyTheme(preferredTheme);
+    switchMode("ko");
+    refreshAll();
+  </script>
+</body>
+</html>
